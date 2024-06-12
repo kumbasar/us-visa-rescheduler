@@ -13,6 +13,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait as Wait
 
+
 from src.constants import COOLDOWN_TIME, EXCEPTION_TIME, RETRY_TIME, STEP_TIME
 from src.utils import get_driver, load_config, my_condition
 
@@ -34,6 +35,14 @@ MAX_DATE_COUNT = 5
 
 
 driver = get_driver(local_use=LOCAL_USE, hub_address=HUB_ADDRESS)
+
+
+def interceptor(request):
+    request.headers['Accept'] = 'application/json, text/javascript, */*; q=0.01'
+    request.headers['X-Requested-With'] = 'XMLHttpRequest'
+
+
+driver.request_interceptor = interceptor
 
 def login():
     """
@@ -93,6 +102,8 @@ def get_available_dates():
     Get the date of the next available appointments.
     """
     driver.get(DATE_URL)
+
+
     if not is_logged_in():
         login()
         return get_available_dates()
@@ -215,6 +226,7 @@ def search_for_available_date():
     :return: True if reschedule successfully, otherwise call itself again.
     """
     logger.info("Searching for available date...")
+    time.sleep(10)
     dates = get_available_dates()[:MAX_DATE_COUNT]
     if not dates:
         logger.info(f"No available date, retrying in {RETRY_TIME} seconds...")
