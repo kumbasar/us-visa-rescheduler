@@ -3,5 +3,5 @@ selenium-wire==5.1.0
 webdriver-manager==4.0.1
 requests==2.31.0
 sendgrid==6.9.7
-loguru==0.5.3
+loguru==0.7.2
 blinker==1.6
