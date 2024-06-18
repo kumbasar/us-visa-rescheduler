@@ -236,6 +236,8 @@ def search_for_available_date():
 
 
 if __name__ == "__main__":
+    logger.add("visa_{time}.log")
+
     login()
 
     earliest_date = datetime.strptime('2030-12-30', "%Y-%m-%d")
