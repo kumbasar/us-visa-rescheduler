@@ -1,38 +1,35 @@
 import json
 import random
-import sys
 import time
 from datetime import datetime
 from typing import Union
 
-import emoji
 import requests
 from loguru import logger
-from prettytable import PrettyTable
 from selenium.webdriver.common.by import By
-from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.support import expected_conditions as ec
 from selenium.webdriver.support.ui import WebDriverWait as Wait
 
 
 from src.constants import COOLDOWN_TIME, EXCEPTION_TIME, RETRY_TIME, STEP_TIME
-from src.utils import get_driver, load_config, my_condition
+from src.utils import get_driver, load_config
 
 config = load_config('src/config.ini')
 USERNAME = config['USVISA']['USERNAME']
 PASSWORD = config['USVISA']['PASSWORD']
 SCHEDULE_ID = config['USVISA']['SCHEDULE_ID']
 MY_SCHEDULE_DATE = config['USVISA']['MY_SCHEDULE_DATE']
+my_date = datetime.strptime(MY_SCHEDULE_DATE, "%Y-%m-%d")
 COUNTRY_CODE = config['USVISA']['COUNTRY_CODE']
 LOCAL_USE = config['CHROMEDRIVER'].getboolean('LOCAL_USE')
 HUB_ADDRESS = config['CHROMEDRIVER']['HUB_ADDRESS']
-FACILITY_ID = sys.argv[1] if len(sys.argv) > 1 else config['USVISA']['FACILITY_ID']
-DATE_URL = f"https://ais.usvisa-info.com/{COUNTRY_CODE}/niv/schedule/{SCHEDULE_ID}/appointment/days/{FACILITY_ID}.json?appointments[expedite]=false"
-TIME_URL = f"https://ais.usvisa-info.com/{COUNTRY_CODE}/niv/schedule/{SCHEDULE_ID}/appointment/times/{FACILITY_ID}.json?date=%s&appointments[expedite]=false"
+FACILITY_ID = config['USVISA']['FACILITY_ID']
+DATE_URL = (f"https://ais.usvisa-info.com/{COUNTRY_CODE}/niv/schedule/{SCHEDULE_ID}/appointment/days/{FACILITY_ID}."
+            f"json?appointments[expedite]=false")
+TIME_URL = (f"https://ais.usvisa-info.com/{COUNTRY_CODE}/niv/schedule/{SCHEDULE_ID}/appointment/times/{FACILITY_ID}."
+            f"json?date=%s&appointments[expedite]=false")
 APPOINTMENT_URL = f"https://ais.usvisa-info.com/{COUNTRY_CODE}/niv/schedule/{SCHEDULE_ID}/appointment"
-GREEN_CIRCLE_EMOJI = emoji.emojize(':green_circle:')
-RED_CIRCLE_EMJOI = emoji.emojize(':red_circle:')
-MAX_DATE_COUNT = 5
-
+MAX_DATE_COUNT = 1
 
 driver = get_driver(local_use=LOCAL_USE, hub_address=HUB_ADDRESS)
 
@@ -43,6 +40,7 @@ def interceptor(request):
 
 
 driver.request_interceptor = interceptor
+
 
 def login():
     """
@@ -62,7 +60,7 @@ def login():
         By.XPATH, '//*[@id="header"]/nav/div/div/div[2]/div[1]/ul/li[3]/a')
     href.click()
     time.sleep(STEP_TIME)
-    Wait(driver, 60).until(EC.presence_of_element_located((By.NAME, "commit")))
+    Wait(driver, 60).until(ec.presence_of_element_located((By.NAME, "commit")))
 
     logger.info("Click bounce...")
     a = driver.find_element(By.XPATH, '//a[@class="down-arrow bounce"]')
@@ -103,13 +101,13 @@ def get_available_dates():
     """
     driver.get(DATE_URL)
 
-
     if not is_logged_in():
         login()
         return get_available_dates()
     else:
         content = driver.find_element(By.TAG_NAME, 'pre').text
         date = json.loads(content)
+        logger.info(date)
         return date
 
 
@@ -120,39 +118,26 @@ def get_valid_date(dates: list) -> Union[str, None]:
 
     :param dates: List of available dates
     """
-    def is_earlier(date):
-        my_date = datetime.strptime(MY_SCHEDULE_DATE, "%Y-%m-%d")
+
+    def is_earlier():
+        global earliest_date
+
         new_date = datetime.strptime(date, "%Y-%m-%d")
+
+        if earliest_date > new_date:
+            earliest_date = new_date
+            logger.info(f"Found new earliest date: {earliest_date}")
+
         return my_date > new_date
 
     logger.info(f"Checking for a date earlier than {MY_SCHEDULE_DATE}...")
-    dates_table = PrettyTable()
-    dates_table.field_names = ["Available Date", "Business Day", "Is Earlier"]
-    dates_table.align["Available Date"] = "l"
-    dates_table.align["Business Day"] = "l"
-    dates_table.align["Is Earlier"] = "c"
-    for d in dates:
-        date = d.get('date')
-        _, month, day = date.split('-')
-        dates_table.add_row([
-            date,
-            'Yes' if d.get('business_day') else 'No',
-            GREEN_CIRCLE_EMOJI if is_earlier(date) else RED_CIRCLE_EMJOI,
-        ])
-    print(dates_table)
 
     for d in dates:
         date = d.get('date')
 
         # Check if date is earlier than my schedule date
-        if not is_earlier(date):
-            continue
-
-        # TODO: Check if date meets my condition
-        # This feature needs improvement, so it's disabled for now
-        # and my_condition(month, day) always returns True
-        _, month, day = date.split('-')
-        if not my_condition(month, day):
+        if not is_earlier():
+            logger.info(f"{date} is not earlier.")
             continue
 
         return date
@@ -162,16 +147,16 @@ def get_time(date):
     """
     Get the time of the next available appointments.
 
-    :param date: Available date to get time
+    :param date: Available date to get slot
     :return: Time of the next available appointment.
     """
     time_url = TIME_URL % date
     driver.get(time_url)
     content = driver.find_element(By.TAG_NAME, 'pre').text
     data = json.loads(content)
-    time = data.get("available_times")[-1]
-    logger.info(f"Got time successfully! {date} {time}")
-    return time
+    time_slot = data.get("available_times")[-1]
+    logger.info(f"Got time successfully! {date} {time_slot}")
+    return time_slot
 
 
 def reschedule(date: str) -> bool:
@@ -179,10 +164,10 @@ def reschedule(date: str) -> bool:
     Reschedule the appointment.
 
     :param date: Available date to reschedule
-    :return: The response of the reschedule request.
+    :return: The response of the rescheduling request.
     """
     logger.info(f"Starting Reschedule ({date})")
-    time = get_time(date)
+    time_slot = get_time(date)
     driver.get(APPOINTMENT_URL)
 
     data = {
@@ -196,7 +181,7 @@ def reschedule(date: str) -> bool:
         ).get_attribute('value'),
         "appointments[consulate_appointment][facility_id]": FACILITY_ID,
         "appointments[consulate_appointment][date]": date,
-        "appointments[consulate_appointment][time]": time,
+        "appointments[consulate_appointment][time]": time_slot,
     }
 
     headers = {
@@ -207,10 +192,10 @@ def reschedule(date: str) -> bool:
 
     r = requests.post(APPOINTMENT_URL, headers=headers, data=data)
     if r.text.find('Successfully Scheduled') != -1:
-        logger.info(f"Rescheduled Successfully! {date} {time}")
+        logger.info(f"Rescheduled Successfully! {date} {time_slot}")
         return True
 
-    logger.info(f"Reschedule Failed. {date} {time}")
+    logger.info(f"Reschedule Failed. {date} {time_slot}")
     return False
 
 
@@ -226,15 +211,17 @@ def search_for_available_date():
     :return: True if reschedule successfully, otherwise call itself again.
     """
     logger.info("Searching for available date...")
-    time.sleep(10)
+    time.sleep(random.randint(1, 3))
     dates = get_available_dates()[:MAX_DATE_COUNT]
     if not dates:
-        logger.info(f"No available date, retrying in {RETRY_TIME} seconds...")
-        time.sleep(RETRY_TIME)
+        sleep = random.randint(5, RETRY_TIME)
+        logger.info(f"No available date, retrying in {sleep} seconds...")
+        time.sleep(sleep)
         return search_for_available_date()
 
     date = get_valid_date(dates)
     if date:
+        logger.info(f"!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! Found early date: {date}")
         if reschedule(date):
             logger.info("Reschedule successfully!")
             return True
@@ -242,25 +229,23 @@ def search_for_available_date():
             logger.info(f"Reschedule failed, retrying in {COOLDOWN_TIME} seconds...")
             time.sleep(COOLDOWN_TIME)
 
-    logger.info(f"No earlier date, retrying in {RETRY_TIME} seconds...")
-    time.sleep(RETRY_TIME)
+    sleep = random.randint(3, RETRY_TIME)
+    logger.info(f"No earlier date, retrying in {sleep} seconds...")
+    time.sleep(sleep)
     return search_for_available_date()
 
 
 if __name__ == "__main__":
     login()
-    RETRY_COUNT = 0
-    MAX_RETRY = 3
+
+    earliest_date = datetime.strptime('2030-12-30', "%Y-%m-%d")
 
     while True:
-        if RETRY_COUNT > MAX_RETRY:
-            break
-
         try:
             if search_for_available_date():
                 break
         except Exception as e:
-            RETRY_COUNT += 1
             logger.error(e)
             logger.error(f"Exception occurred, retrying after {EXCEPTION_TIME} seconds...")
             time.sleep(EXCEPTION_TIME)
+            login()

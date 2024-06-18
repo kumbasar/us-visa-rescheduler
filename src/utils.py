@@ -31,10 +31,6 @@ def load_config(config_file):
 # No custom condition wanted for the new scheduled date
 
 
-def my_condition(month, day):
-    return None
-
-
 def get_driver(local_use, hub_address):
     """
     Get driver instance based on LOCAL_USE flag.
