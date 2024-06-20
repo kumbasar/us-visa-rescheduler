@@ -137,7 +137,7 @@ def get_valid_date(dates: list) -> Union[str, None]:
 
         # Check if date is earlier than my schedule date
         if not is_earlier():
-            logger.info(f"{date} is not earlier.")
+            logger.info(f"{date} is not earlier. Earliest: {earliest_date}")
             continue
 
         return date
@@ -229,7 +229,7 @@ def search_for_available_date():
             logger.info(f"Reschedule failed, retrying in {COOLDOWN_TIME} seconds...")
             time.sleep(COOLDOWN_TIME)
 
-    sleep = random.randint(3, RETRY_TIME)
+    sleep = random.randint(10, RETRY_TIME)
     logger.info(f"No earlier date, retrying in {sleep} seconds...")
     time.sleep(sleep)
     return search_for_available_date()
@@ -250,4 +250,3 @@ if __name__ == "__main__":
             logger.error(e)
             logger.error(f"Exception occurred, retrying after {EXCEPTION_TIME} seconds...")
             time.sleep(EXCEPTION_TIME)
-            login()
